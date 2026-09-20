@@ -1,9 +1,54 @@
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];let db;
-const openDB=()=>new Promise((ok,no)=>{let r=indexedDB.open('progettoManga',1);r.onupgradeneeded=()=>['project','refs','pages'].forEach(n=>{if(!r.result.objectStoreNames.contains(n))r.result.createObjectStore(n,{keyPath:'id'})});r.onsuccess=()=>{db=r.result;ok()};r.onerror=()=>no(r.error)});const os=(n,m='readonly')=>db.transaction(n,m).objectStore(n);const put=(n,v)=>new Promise((ok,no)=>{let r=os(n,'readwrite').put(v);r.onsuccess=ok;r.onerror=()=>no(r.error)});const all=n=>new Promise((ok,no)=>{let r=os(n).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});const get=(n,id)=>new Promise(ok=>{let r=os(n).get(id);r.onsuccess=()=>ok(r.result)});const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function show(id){$$('.view').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.v===id));if(id==='refs')renderRefs();if(id==='project')renderPages()}$$('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v));
-async function save(){await put('project',{id:'main',title:$('#title').value,notes:$('#notes').value,updated:Date.now()});$('#status').textContent='Salvato ✓ '+new Date().toLocaleTimeString()}$('#save').onclick=save;let timer;['title','notes'].forEach(id=>$('#'+id).oninput=()=>{clearTimeout(timer);timer=setTimeout(save,700)});
-const dataURL=f=>new Promise((ok,no)=>{let r=new FileReader;r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(f)});$('#refFile').onchange=async e=>{let f=e.target.files[0],name=$('#refName').value.trim();if(!f)return;if(!name){alert('Scrivi prima il nome della reference.');return}await put('refs',{id:crypto.randomUUID(),name,type:$('#refType').value,data:await dataURL(f),canonical:true,created:Date.now()});$('#refName').value='';e.target.value='';renderRefs()};async function renderRefs(){let a=await all('refs');$('#refsGrid').innerHTML=a.length?a.map(r=>`<div class='ref'><img src='${r.data}'><div><b>${esc(r.name)}</b><br><small>${esc(r.type)} · CANONICA</small></div></div>`).join(''):'<p class=muted>Nessuna reference.</p>'}
-$('#addImage').onclick=()=>$('#pageFile').click();$('#pageFile').onchange=async e=>{let f=e.target.files[0];if(f)addLayer('image',await dataURL(f));e.target.value=''};$('#addText').onclick=()=>{let t=prompt('Testo del balloon:');if(t)addLayer('text',t)};function addLayer(type,data){$('.hint')?.remove();let el=document.createElement(type==='image'?'img':'div');el.className='layer '+(type==='text'?'textLayer':'');el.dataset.type=type;if(type==='image')el.src=data;else el.textContent=data;drag(el);$('#canvas').appendChild(el)}function drag(el){let sx,sy,l,t;el.onpointerdown=e=>{e.preventDefault();$$('.layer').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');sx=e.clientX;sy=e.clientY;l=el.offsetLeft;t=el.offsetTop;el.setPointerCapture(e.pointerId)};el.onpointermove=e=>{if(!el.hasPointerCapture(e.pointerId))return;let c=$('#canvas');el.style.left=Math.max(0,Math.min(c.clientWidth-el.offsetWidth,l+e.clientX-sx))/c.clientWidth*100+'%';el.style.top=Math.max(0,Math.min(c.clientHeight-el.offsetHeight,t+e.clientY-sy))/c.clientHeight*100+'%'}}$('#clear').onclick=()=>{if(confirm('Svuotare la pagina?'))$('#canvas').innerHTML='<div class=hint>Pagina vuota.</div>'};
-$('#savePage').onclick=async()=>{let layers=$$('#canvas .layer').map(el=>({type:el.dataset.type,data:el.dataset.type==='image'?el.src:el.textContent,left:el.style.left,top:el.style.top}));await put('pages',{id:crypto.randomUUID(),name:$('#pageName').value||'Pagina',layers,created:Date.now()});alert('Pagina salvata.');renderPages()};async function renderPages(){let p=(await all('pages')).sort((a,b)=>a.created-b.created);$('#pages').innerHTML=p.length?p.map((x,i)=>`<div class=card><b>${esc(x.name)}</b><div class=muted>${x.layers.length} elementi · pagina ${i+1}</div></div>`).join(''):'<p class=muted>Nessuna pagina salvata.</p>'}$('#pdf').onclick=()=>{alert('Nella schermata di stampa Android scegli “Salva come PDF”.');window.print()};
-$('#send').onclick=async()=>{let p=$('#prompt').value.trim();if(!p)return;$('#messages').insertAdjacentHTML('beforeend',`<div class=user>${esc(p)}</div>`);$('#prompt').value='';let refs=await all('refs'), words=(p.toLowerCase().match(/[a-zà-ù0-9]+/g)||[]),known=refs.some(r=>words.some(w=>w.length>3&&r.name.toLowerCase().includes(w)));let msg=!refs.length?'Mancano reference canoniche. Caricane almeno una prima di costruire la scena.':known?'Ho trovato una reference collegabile alla richiesta. Puoi comporre la pagina usando gli asset disponibili.':'Non trovo con certezza la reference richiesta. Caricala invece di inventare un dettaglio canonico.';$('#messages').insertAdjacentHTML('beforeend',`<div class=bot>${msg}</div>`)};$('#prompt').onkeydown=e=>{if(e.key==='Enter')$('#send').click()};
-(async()=>{await openDB();let p=await get('project','main');if(p){$('#title').value=p.title||'';$('#notes').value=p.notes||''}renderPages();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js')})();
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let db;
+const openDB=()=>new Promise((res,rej)=>{const r=indexedDB.open('progettoMangaV2',1);r.onupgradeneeded=()=>{const d=r.result;['assets','project'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)});
+const st=(n,m='readonly')=>db.transaction(n,m).objectStore(n);
+const put=(n,v)=>new Promise((res,rej)=>{let r=st(n,'readwrite').put(v);r.onsuccess=res;r.onerror=()=>rej(r.error)});
+const all=n=>new Promise((res,rej)=>{let r=st(n).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const get=(n,id)=>new Promise((res,rej)=>{let r=st(n).get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+$$('nav button').forEach(b=>b.onclick=()=>{$$('.view').forEach(v=>v.classList.toggle('active',v.id===b.dataset.view));$$('nav button').forEach(x=>x.classList.toggle('active',x===b));if(b.dataset.view==='library')renderAssets()});
+async function pdfText(file){
+ const buf=await file.arrayBuffer(); const pdf=await pdfjsLib.getDocument({data:buf}).promise; let text='', previews=[];
+ for(let i=1;i<=pdf.numPages;i++){const p=await pdf.getPage(i);const tc=await p.getTextContent();const t=tc.items.map(x=>x.str).join(' ').trim();text+=`\n[PAGINA ${i}] ${t}`;}
+ return {text:text.trim(),pages:pdf.numPages};
+}
+$('#libraryFiles').onchange=async e=>{
+ const files=[...e.target.files]; if(!files.length)return;
+ $('#status').textContent='Lettura…';
+ for(const f of files){
+   let kind=f.type==='application/pdf'?'PDF':'IMMAGINE', text='', pages=1;
+   try{if(kind==='PDF'){const r=await pdfText(f);text=r.text;pages=r.pages}}
+   catch(err){text='';}
+   await put('assets',{id:crypto.randomUUID(),name:f.name,kind,text,pages,size:f.size,created:Date.now()});
+ }
+ e.target.value=''; $('#status').textContent='Locale'; renderAssets();
+};
+async function renderAssets(){
+ const a=await all('assets');
+ $('#assetList').innerHTML=a.length?a.sort((x,y)=>y.created-x.created).map(x=>`<div class="card"><b>${esc(x.name)}</b><small>${x.kind}${x.kind==='PDF'?` · ${x.pages} pagine`:''}</small><div><span class="tag">CANONICO</span>${x.kind==='PDF'?`<span class="tag">${x.text? 'testo letto':'nessun testo estraibile'}</span>`:''}</div>${x.text?`<small>${esc(x.text.slice(0,180))}${x.text.length>180?'…':''}</small>`:''}</div>`).join(''):'<p class="muted">Nessun file caricato.</p>';
+}
+function tokens(s){return (s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').match(/[a-z0-9]+/g)||[]).filter(w=>w.length>2)}
+function candidates(scene, assets){
+ const corpus=assets.map(a=>({a,words:new Set(tokens(a.name+' '+(a.text||'')))}));
+ const lines=scene.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+ const proper=[...new Set((scene.match(/\b[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]{2,}\b/g)||[]).filter(x=>!/^Vignetta$/i.test(x)))];
+ const missing=[];
+ for(const name of proper){const n=tokens(name)[0];if(!corpus.some(c=>c.words.has(n)))missing.push(name)}
+ return {lines,proper,missing,found:proper.filter(n=>!missing.includes(n))};
+}
+$('#preflight').onclick=async()=>{
+ const scene=$('#scene').value.trim(); if(!scene)return alert('Scrivi prima la scena o le vignette.');
+ const assets=await all('assets'); const r=candidates(scene,assets);
+ let html='<div class="check"><h2>Controllo prima della generazione</h2>';
+ if(!assets.length) html+=`<div class="warn"><b>Libreria vuota.</b><br>Prima di generare, carica PDF o immagini canoniche.<div class="actions"><button onclick="document.querySelector('[data-view=library]').click()">Carica file</button></div></div>`;
+ else{
+   html+=`<div class="ok"><b>${assets.length} file canonici disponibili.</b><br>${r.found.length?'Riconosciuti nella richiesta: '+r.found.map(esc).join(', '):'Nessun nome proprio riconosciuto con certezza.'}</div>`;
+   if(r.missing.length) html+=r.missing.map(n=>`<div class="warn"><b>Manca: ${esc(n)}</b><br>Non verrà inventato automaticamente.<div class="actions"><button onclick="document.querySelector('[data-view=library]').click()">Carica file</button><button onclick="alert('Generazione reference: provider AI non ancora collegato.')">Genera reference</button></div></div>`).join('');
+   else html+=`<div class="ok"><b>Preflight completato.</b><br>Le reference nominate risultano presenti. Il prossimo modulo collegherà questa richiesta al generatore immagini e controllerà anche viste/dettagli mancanti (es. piede, schiena, suola).</div>`;
+ }
+ html+=`<div class="card"><b>Vignette rilevate: ${r.lines.length}</b><small>${r.lines.map(esc).join('<br>')}</small></div></div>`;
+ $('#checkResult').innerHTML=html;
+};
+$('#clearScene').onclick=()=>{$('#scene').value='';$('#checkResult').innerHTML=''};
+$('#saveProject').onclick=async()=>{await put('project',{id:'main',title:$('#title').value,rules:$('#rules').value,updated:Date.now()});$('#saved').textContent='Salvato ✓ '+new Date().toLocaleTimeString()};
+(async()=>{await openDB();const p=await get('project','main');if(p){$('#title').value=p.title||'';$('#rules').value=p.rules||''}renderAssets();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js')})();
